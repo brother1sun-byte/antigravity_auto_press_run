@@ -211,8 +211,9 @@ async function checkForButtons() {
         const outerHtmlResult = await sendCdpMessage('DOM.getOuterHTML', { nodeId });
         const html = (outerHtmlResult.outerHTML || '').toLowerCase();
 
-        // HTMLタグを除去してテキストのみを抽出
-        const text = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+        // HTMLタグを除去してテキストのみを抽出 (改行も含めて抽出してから正規化する)
+        let text = html.replace(/<[^>]+>/g, ' ');
+        text = text.replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
 
         // 誤爆防ぐため、除外キーワード（Always run等）が含まれる場合はスキップ
         let isExcluded = false;
@@ -229,6 +230,7 @@ async function checkForButtons() {
         for (const kw of TARGET_KEYWORDS) {
             const lowerKw = kw.toLowerCase();
             // 完全一致、または「Run Alt+Enter」のように後ろにショートカットが続くケースを許容
+            // または "Allow Once" のようにタグ内で区切られていた文字が結合されているケース
             if (text === lowerKw || text.startsWith(lowerKw + ' ')) {
                 matchedKeyword = kw;
                 break;
