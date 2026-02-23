@@ -1,0 +1,16 @@
+# Node用 .gitignore
+node_modules/
+npm-debug.log*
+*.log
+
+# 環境変数ファイル
+.env
+.env.*
+
+# OS 生成ファイル
+.DS_Store
+Thumbs.db
+
+# エディタ設定
+.vscode/
+*.swp
