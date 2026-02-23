@@ -1,3 +1,5 @@
+![Antigravity Auto Press Run](./header.jpg)
+
 # Antigravity Auto Press Run
 
 **Antigravity Auto Press Run** は、AI コーディングアシスタント「Antigravity（VSCode 拡張機能）」が表示する許可確認ボタン（`Allow Once`・`Allow This Conversation`・`Run` など）を自動でクリックするための、軽量なバックグラウンドスクリプトです。
