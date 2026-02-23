@@ -1,8 +1,8 @@
 @echo off
 chcp 65001 >nul
-title Antigravity Auto Accept Helper
+title Antigravity Autopush Run
 echo =========================================
-echo    Antigravity Auto Accept Script
+echo    Antigravity Autopush Run Script
 echo =========================================
 echo.
 echo 起動中...

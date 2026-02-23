@@ -305,5 +305,5 @@ async function checkForButtons() {
 }
 
 // 起動時に監視開始
-log('Starting Auto Accept background process...');
+log('Starting Antigravity Autopush Run background process...');
 connectToAntigravity();
