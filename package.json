@@ -1,15 +1,20 @@
 {
-  "name": "auto-accept",
+  "name": "antigravity-auto-press-run",
   "version": "1.0.0",
-  "main": "auto_accept.js",
+  "description": "Antigravity の許可確認ボタンを CDP 経由で自動クリックするバックグラウンドスクリプト",
+  "main": "antigravity_auto_press_run.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "node antigravity_auto_press_run.js"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "description": "",
+  "keywords": [
+    "antigravity",
+    "vscode",
+    "cdp",
+    "automation"
+  ],
+  "author": "harunamitrader",
+  "license": "MIT",
   "dependencies": {
     "ws": "^8.19.0"
   },

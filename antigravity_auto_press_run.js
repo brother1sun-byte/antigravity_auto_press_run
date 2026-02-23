@@ -196,8 +196,7 @@ function startPolling() {
         try {
             await checkForButtons();
         } catch (e) {
-            // CDPエラーは一時的な場合が多いのでログは最小限に
-            // log(`Polling error: ${e.message}`);
+            // CDPエラーは一時的な場合が多いので無視する
         }
     }, POLLING_INTERVAL);
 }
