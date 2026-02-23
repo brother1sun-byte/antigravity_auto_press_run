@@ -202,12 +202,30 @@ function startPolling() {
 }
 
 /**
+ * DOMノードの nodeId → parentId のマップを再帰的に構築する
+ */
+function buildParentMap(node, map = new Map(), parentId = null) {
+    if (parentId !== null) {
+        map.set(node.nodeId, parentId);
+    }
+    if (node.children) {
+        for (const child of node.children) {
+            buildParentMap(child, map, node.nodeId);
+        }
+    }
+    return map;
+}
+
+/**
  * DOMツリーを探査して、クリック対象のボタンを見つける
  */
 async function checkForButtons() {
-    // 画面全体のルートノードを取得
+    // 画面全体のルートノードを取得（depth: -1 で全子孫を含む）
     const docResult = await sendCdpMessage('DOM.getDocument', { depth: -1 });
     const rootNodeId = docResult.root.nodeId;
+
+    // nodeId → parentId のマップを構築（コンテキスト取得に使用）
+    const parentMap = buildParentMap(docResult.root);
 
     // button 要素 または role="button" の要素を検索するクエリ
     const queryResult = await sendCdpMessage('DOM.querySelectorAll', {
@@ -260,41 +278,23 @@ async function checkForButtons() {
             const y = (quad[1] + quad[3] + quad[5] + quad[7]) / 4;
 
             // ボタンの周囲のテキスト（文脈）を取得してログに残す
+            // parentMap を使って親ノードを6段階遡り、DOM.getOuterHTML でテキストを取得する
             let contextText = 'Unknown context';
             try {
-                // Runtime.evaluate でページ内のJSを直接実行してコンテキストを取得する
-                // ボタンのテキストで検索 → 親要素を最大6段階遡り → テキストを取得
-                const kwLower = matchedKeyword.toLowerCase().replace(/"/g, '\\"');
-                const evalResult = await sendCdpMessage('Runtime.evaluate', {
-                    expression: `(function() {
-                        const allButtons = Array.from(document.querySelectorAll('button, div[role="button"]'));
-                        const btn = allButtons.find(b => {
-                            const t = (b.innerText || b.textContent || '').replace(/\\s+/g, ' ').trim().toLowerCase();
-                            return t === "${kwLower}" || t.startsWith("${kwLower} ");
-                        });
-                        if (!btn) return '[ボタンが見つかりませんでした]';
-                        let el = btn.parentElement;
-                        for (let i = 0; i < 6; i++) {
-                            if (!el || !el.parentElement) break;
-                            const t = (el.innerText || el.textContent || '').trim();
-                            if (t.length >= 80) break;
-                            el = el.parentElement;
-                        }
-                        const raw = (el ? el.innerText || el.textContent : '') || '';
-                        return raw.replace(/[ \\t]+/g, ' ').replace(/\\n{2,}/g, '\\n').trim();
-                    })()`,
-                    returnByValue: true
-                });
-
-                if (evalResult.result && evalResult.result.value) {
-                    let cleanContext = evalResult.result.value;
-                    // 最大500文字まで表示
-                    if (cleanContext.length > 500) {
-                        cleanContext = cleanContext.substring(0, 500) + '...';
-                    }
-                    if (cleanContext) {
-                        contextText = cleanContext;
-                    }
+                let ancestorId = parentMap.get(nodeId);
+                for (let i = 0; i < 5; i++) {
+                    const nextParent = parentMap.get(ancestorId);
+                    if (!nextParent) break;
+                    ancestorId = nextParent;
+                }
+                if (ancestorId) {
+                    const ctxHtmlResult = await sendCdpMessage('DOM.getOuterHTML', { nodeId: ancestorId });
+                    const ctxHtml = ctxHtmlResult.outerHTML || '';
+                    // HTMLタグを除去してテキストのみ抽出
+                    let clean = ctxHtml.replace(/<[^>]+>/g, ' ');
+                    clean = clean.replace(/&nbsp;/g, ' ').replace(/[ \t]+/g, ' ').replace(/\n{2,}/g, '\n').trim();
+                    if (clean.length > 500) clean = clean.substring(0, 500) + '...';
+                    if (clean) contextText = clean;
                 }
             } catch (err) {
                 // コンテキスト取得に失敗してもクリックは継続する
