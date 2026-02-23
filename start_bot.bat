@@ -6,5 +6,5 @@ echo    Antigravity Auto Press Run Script
 echo =========================================
 echo.
 echo 起動中...
-node auto_press_run.js
+node antigravity_auto_press_run.js
 pause

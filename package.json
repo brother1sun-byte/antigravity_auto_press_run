@@ -4,7 +4,7 @@
   "main": "auto_accept.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "node auto_press_run.js"
+    "start": "node antigravity_auto_press_run.js"
   },
   "keywords": [],
   "author": "",
