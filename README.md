@@ -104,7 +104,7 @@ npm start
 [10:30:06] [Action] "Allow Once" ボタンを自動クリックします
   ┗ [Context]
       Allow file access to
-      C:\Users\harunami\Desktop\helloworld\discord_interaction.l
+      C:\path\to\your\project\file.js
       Deny  Allow Once  Allow This Conversation
 ```
 

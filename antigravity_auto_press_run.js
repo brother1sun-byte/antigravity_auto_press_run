@@ -1,5 +1,6 @@
 import http from 'http';
 import WebSocket from 'ws';
+import fs from 'fs';
 
 const CDP_PORTS = [9222, 9000, 9001, 9002, 9003];
 const POLLING_INTERVAL = 5000;
@@ -21,7 +22,13 @@ const pendingRequests = new Map();
  */
 function log(msg) {
     const timestamp = new Date().toLocaleTimeString();
-    console.log(`[${timestamp}] ${msg}`);
+    const logLine = `[${timestamp}] ${msg}`;
+    console.log(logLine);
+    try {
+        fs.appendFileSync('auto_press_run.log', logLine + '\n', 'utf8');
+    } catch (err) {
+        // ファイル書き込みエラー時はコンソールのみ出力
+    }
 }
 
 /**
@@ -263,7 +270,19 @@ async function checkForButtons() {
 
         if (matchedKeyword) {
             // BoxModelを取得して座標を計算
-            const boxResult = await sendCdpMessage('DOM.getBoxModel', { nodeId });
+            let boxResult;
+            try {
+                boxResult = await sendCdpMessage('DOM.getBoxModel', { nodeId });
+            } catch (e) {
+                // 非表示やレイアウト外のボタンはBoxModel取得に失敗するのでスキップ
+                log(`  ┗ [Skip] BoxModel取得失敗 (非表示ボタンの可能性): ${e.message}`);
+                continue;
+            }
+            // model または content が取得できない場合もスキップ
+            if (!boxResult || !boxResult.model || !boxResult.model.content) {
+                log(`  ┗ [Skip] BoxModelのcontentが無効のためスキップ`);
+                continue;
+            }
             const quad = boxResult.model.content;
             // quad = [x1, y1, x2, y2, x3, y3, x4, y4]
             const x = (quad[0] + quad[2] + quad[4] + quad[6]) / 4;
@@ -298,26 +317,55 @@ async function checkForButtons() {
             log(`  ┗ [Context]\n${contextText.split('\n').map(l => '      ' + l).join('\n')}`);
 
             // クリックイベントを発行
-            await sendCdpMessage('Input.dispatchMouseEvent', {
-                type: 'mousePressed',
-                x,
-                y,
-                button: 'left',
-                clickCount: 1
-            });
-            await sendCdpMessage('Input.dispatchMouseEvent', {
-                type: 'mouseReleased',
-                x,
-                y,
-                button: 'left',
-                clickCount: 1
-            });
+            try {
+                // DOM.resolveNodeとRuntime.callFunctionOnを使ってJavaScriptから直接クリックを発火
+                // （画面外に隠れていて座標が無効な場合でも確実に押せるようにするための対策）
+                const resolveResult = await sendCdpMessage('DOM.resolveNode', { nodeId });
+                if (resolveResult && resolveResult.object && resolveResult.object.objectId) {
+                    await sendCdpMessage('Runtime.callFunctionOn', {
+                        functionDeclaration: 'function() { this.click(); }',
+                        objectId: resolveResult.object.objectId
+                    });
+                }
+            } catch (err) {
+                log(`  ┗ [Warn] JavaScriptでの直接クリックに失敗: ${err.message}`);
+            }
+
+            // 念のため、従来の「座標によるマウスイベント送出」も実行しておく
+            try {
+                await sendCdpMessage('Input.dispatchMouseEvent', {
+                    type: 'mousePressed',
+                    x,
+                    y,
+                    button: 'left',
+                    clickCount: 1
+                });
+                await sendCdpMessage('Input.dispatchMouseEvent', {
+                    type: 'mouseReleased',
+                    x,
+                    y,
+                    button: 'left',
+                    clickCount: 1
+                });
+            } catch (err) {
+                log(`  ┗ [Warn] 座標によるクリック発火に失敗: ${err.message}`);
+            }
 
             // 1回のループで1クリックのみ。複数ある場合は次回ループで。
             return;
         }
     }
 }
+
+// 未ハンドルの例外でプロセスが落ちないようにグローバルエラーハンドラを設定
+process.on('uncaughtException', (err) => {
+    log(`[WARN] 未ハンドル例外 (プロセスは継続します): ${err.message}`);
+});
+
+process.on('unhandledRejection', (reason) => {
+    const msg = reason instanceof Error ? reason.message : String(reason);
+    log(`[WARN] 未ハンドルPromise拒否 (プロセスは継続します): ${msg}`);
+});
 
 // 起動時に監視開始
 log('Starting Antigravity Auto Press Run background process...');
