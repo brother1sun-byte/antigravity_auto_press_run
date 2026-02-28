@@ -192,6 +192,11 @@ function startPolling() {
     checkInterval = setInterval(async () => {
         if (!cdpWs || cdpWs.readyState !== WebSocket.OPEN) return;
 
+        // 1分ごとに生存確認ログを出す
+        if (Date.now() % 60000 < POLLING_INTERVAL) {
+            log('Still scanning for buttons...');
+        }
+
         try {
             await checkForButtons();
         } catch (e) {
