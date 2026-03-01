@@ -2,11 +2,13 @@ import http from 'http';
 import WebSocket from 'ws';
 import fs from 'fs';
 
-const CDP_PORTS = [9222, 9000, 9001, 9002, 9003];
+const CDP_PORTS = [9222, 9333, 9444, 9555, 9666, 9000, 9001, 9002, 9003];
 const POLLING_INTERVAL = 5000;
 
 // 自動クリック対象のボタンテキスト（優先順位順）
 const TARGET_KEYWORDS = [
+    'Always Allow',
+    'Always Run',
     'Run',
     'Allow Once',
 ];
@@ -16,6 +18,7 @@ let isPolling = false;
 let checkInterval = null;
 let messageIdCounter = 1;
 const pendingRequests = new Map();
+const clickedButtons = new Set(); // 重複クリック防止用のセット
 
 /**
  * 簡易ログ出力
@@ -240,7 +243,7 @@ async function checkForButtons() {
     const nodeIds = queryResult.nodeIds || [];
     if (nodeIds.length === 0) return;
 
-    const EXCLUDE_KEYWORDS = ['always', '常に'];
+    const EXCLUDE_KEYWORDS = []; // 重複チェックを導入したため、除外設定を解除 // 全てのターゲットを許可
 
     for (const nodeId of nodeIds) {
         // ボタンのテキストや属性を取得
@@ -265,15 +268,56 @@ async function checkForButtons() {
         let matchedKeyword = null;
         for (const kw of TARGET_KEYWORDS) {
             const lowerKw = kw.toLowerCase();
-            // 完全一致、または「Run Alt+Enter」のように後ろにショートカットが続くケースを許容
-            // または "Allow Once" のようにタグ内で区切られていた文字が結合されているケース
-            if (text === lowerKw || text.startsWith(lowerKw + ' ')) {
+            // v2.1: 改行や空白が含まれていても柔軟にマッチング
+            const normalizedText = text.toLowerCase();
+            if (normalizedText === lowerKw ||
+                normalizedText.startsWith(lowerKw + ' ') ||
+                normalizedText.includes(' ' + lowerKw)) {
                 matchedKeyword = kw;
                 break;
             }
         }
 
         if (matchedKeyword) {
+            // v2.1: 「ボタンが置かれている状況（文脈）」を5階層以上の親要素まで遡って解析し、IDのように扱って管理
+            let contextText = 'Unknown context';
+            let contextId = ''; // ID的な一意識別子
+            try {
+                let currentId = nodeId;
+                let contextNodes = [];
+                for (let i = 0; i < 8; i++) { // さらに深く8階層までチェック
+                    const parentId = parentMap.get(currentId);
+                    if (!parentId) break;
+                    currentId = parentId;
+                    contextNodes.push(currentId);
+                }
+
+                // 最も遠い親（文脈の起点）から情報を取得
+                const ancestorId = contextNodes[contextNodes.length - 1];
+                if (ancestorId) {
+                    const ctxHtmlResult = await sendCdpMessage('DOM.getOuterHTML', { nodeId: ancestorId });
+                    const ctxHtml = ctxHtmlResult.outerHTML || '';
+
+                    // HTML構造からテキスト情報を抽出し、不要な空白を除去
+                    let clean = ctxHtml.replace(/<[^>]+>/g, ' ');
+                    clean = clean.replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
+
+                    // セッション管理用の一意なキーを作成（ボタン自体のテキスト + 周辺テキスト）
+                    contextText = clean.length > 500 ? clean.substring(0, 500) + '...' : clean;
+                    contextId = clean; // 重複判定にはフルテキスト（または長めの切り出し）を使用
+                }
+            } catch (err) {
+                log(`  ┗ [Warn] 文脈解析エラー: ${err.message}`);
+            }
+
+            // v2.1: 重複クリック防止（デデュプリケーション）
+            // ボタンのテキストと、その「状況（文脈）」をセットで記憶
+            const buttonKey = `${text.toLowerCase()} @ [${contextId}]`;
+            if (clickedButtons.has(buttonKey)) {
+                // セッション管理: 一度承認したものは二度とクリックしない
+                continue;
+            }
+
             // BoxModelを取得して座標を計算
             let boxResult;
             try {
@@ -293,38 +337,16 @@ async function checkForButtons() {
             const x = (quad[0] + quad[2] + quad[4] + quad[6]) / 4;
             const y = (quad[1] + quad[3] + quad[5] + quad[7]) / 4;
 
-            // ボタンの周囲のテキスト（文脈）を取得してログに残す
-            // parentMap を使って親ノードを6段階遡り、DOM.getOuterHTML でテキストを取得する
-            let contextText = 'Unknown context';
-            try {
-                let ancestorId = parentMap.get(nodeId);
-                for (let i = 0; i < 5; i++) {
-                    const nextParent = parentMap.get(ancestorId);
-                    if (!nextParent) break;
-                    ancestorId = nextParent;
-                }
-                if (ancestorId) {
-                    const ctxHtmlResult = await sendCdpMessage('DOM.getOuterHTML', { nodeId: ancestorId });
-                    const ctxHtml = ctxHtmlResult.outerHTML || '';
-                    // HTMLタグを除去してテキストのみ抽出
-                    let clean = ctxHtml.replace(/<[^>]+>/g, ' ');
-                    clean = clean.replace(/&nbsp;/g, ' ').replace(/[ \t]+/g, ' ').replace(/\n{2,}/g, '\n').trim();
-                    if (clean.length > 500) clean = clean.substring(0, 500) + '...';
-                    if (clean) contextText = clean;
-                }
-            } catch (err) {
-                // コンテキスト取得に失敗してもクリックは継続する
-                contextText = `Failed to get context: ${err.message}`;
-            }
-
             // 分かりやすくするためコンテキストは別行に出力
             log(`[Action] "${matchedKeyword}" ボタンを自動クリックします`);
             log(`  ┗ [Context]\n${contextText.split('\n').map(l => '      ' + l).join('\n')}`);
 
+            // クリック済みリストに登録
+            clickedButtons.add(buttonKey);
+
             // クリックイベントを発行
             try {
                 // DOM.resolveNodeとRuntime.callFunctionOnを使ってJavaScriptから直接クリックを発火
-                // （画面外に隠れていて座標が無効な場合でも確実に押せるようにするための対策）
                 const resolveResult = await sendCdpMessage('DOM.resolveNode', { nodeId });
                 if (resolveResult && resolveResult.object && resolveResult.object.objectId) {
                     await sendCdpMessage('Runtime.callFunctionOn', {
