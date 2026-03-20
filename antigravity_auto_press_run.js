@@ -9,8 +9,17 @@ const POLLING_INTERVAL = 5000;
 const TARGET_KEYWORDS = [
     'Always Allow',
     'Always Run',
+    'Allow All',
+    'Allow This Conversation',
     'Run',
     'Allow Once',
+    'Allow',
+    'Yes',
+    'Confirm',
+    'Proceed',
+    'Accept',
+    'Continue',
+    'OK'
 ];
 
 let cdpWs = null;
